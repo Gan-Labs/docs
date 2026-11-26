@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>How autoresearch works</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Fraunces:opsz,wght@9..144,600&display=swap">
+<style>
+/* Layout: single reading column; diagrams break out to a wider track; a referee-ledger motif (turn log) as the one distinctive device. */
+:root{
+  --bg:#f6f7f4; --surface:#ffffff; --fg:#1d2420; --muted:#5b665f; --line:#d8ddd6;
+  --accent:#2f6f5e; --claude:#b4572e; --codex:#3a5fa8; --simp:#7a5aa0;
+  --display:"Fraunces", Georgia, serif; --body:"IBM Plex Sans", system-ui, sans-serif; --mono:"IBM Plex Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#131815; --surface:#1b211d; --fg:#e4e9e4; --muted:#9aa69e; --line:#2d3530;
+  --accent:#6fbfa6; --claude:#e08a5f; --codex:#7f9fe0; --simp:#b597d8; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#131815; --surface:#1b211d; --fg:#e4e9e4; --muted:#9aa69e; --line:#2d3530;
+  --accent:#6fbfa6; --claude:#e08a5f; --codex:#7f9fe0; --simp:#b597d8; color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:16px/1.6 var(--body);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:40px 64px}
+main{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:40px}
+h1,h2{font-family:var(--display);font-weight:600;text-wrap:balance;line-height:1.2;margin:0}
+h1{font-size:2.2rem} h2{font-size:1.45rem;margin-bottom:12px}
+p{margin:0 0 12px} p:last-child{margin-bottom:0}
+.lede{font-size:1.1rem;color:var(--muted);max-width:62ch}
+.eyebrow{font:500 .75rem/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-bottom:10px}
+code{font:.9em var(--mono);background:color-mix(in srgb,var(--accent) 10%,transparent);padding:1px 5px;border-radius:4px}
+.diagram{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:20px;overflow-x:auto}
+.diagram pre.mermaid{margin:0;background:transparent;text-align:center}
+.cap{font-size:.85rem;color:var(--muted);margin-top:10px}
+.roles{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.role{border-top:3px solid var(--c);padding:12px 0 0}
+.role h3{margin:0 0 4px;font:600 1rem var(--body)} .role p{font-size:.93rem;color:var(--muted)}
+table{border-collapse:collapse;width:100%;font-size:.92rem}
+.tw{overflow-x:auto}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:500 .75rem var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+td:first-child{font-family:var(--mono);font-size:.85rem;white-space:nowrap}
+.ledger{font:.82rem/1.7 var(--mono);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto;white-space:pre;font-variant-numeric:tabular-nums}
+.ledger .c{color:var(--claude)} .ledger .x{color:var(--codex)} .ledger .s{color:var(--simp)} .ledger .m{color:var(--muted)}
+ul{margin:0;padding-left:20px} li{margin-bottom:6px}
+a{color:var(--accent)}
+</style>
+
+</head><body>
+<nav style="max-width:760px;margin:0 auto 24px"><a href="../index.html">&larr; All docs</a></nav>
+<main>
+<header>
+  <div class="eyebrow">Gan-Labs / autoresearch</div>
+  <h1>How autoresearch works</h1>
+  <p class="lede" style="margin-top:12px">Two AI models argue a research idea until it holds up, a third makes it smaller, and a plain Python script referees: it counts rounds, enforces budgets, and records every turn in git. Nothing goes to experiments or a paper until you sign off.</p>
+</header>
+
+<section>
+  <h2>The cast</h2>
+  <div class="roles">
+    <div class="role" style="--c:var(--accent)"><h3>Referee</h3><p><code>referee.py</code>, about 370 lines of standard-library Python. It calls the agents in order, reads their verdicts, enforces caps and commits each turn. It never judges the science.</p></div>
+    <div class="role" style="--c:var(--claude)"><h3>Claude debater</h3><p>Opus 5.5. Critiques the proposal and the other debater, then proposes fixes. Ends every turn with a JSON verdict.</p></div>
+    <div class="role" style="--c:var(--codex)"><h3>Codex debater</h3><p>gpt-6-astra, through <code>codex exec</code>. It has the same job and prompt as Claude, so the two are symmetric.</p></div>
+    <div class="role" style="--c:var(--simp)"><h3>Simplifier</h3><p>Claude again, in a different role. Rewrites <code>proposal.md</code> to one core hypothesis, at most two decision rules and at most 400 words.</p></div>
+    <div class="role" style="--c:var(--muted)"><h3>Reporter</h3><p>A separate read-only Claude call. Summarises the run onto the Notion Agent Brainstorm page. The debaters never see Notion.</p></div>
+    <div class="role" style="--c:var(--muted)"><h3>Writer</h3><p>Runs only after you sign off. Drafts an ICLR-style paper scaffold in which every number is a labelled placeholder.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>End to end</h2>
+  <p>A run starts from a brief you write, loops through debate rounds until it converges or hits a cap, then waits for you. Every arrow that touches the run folder is also a git commit.</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart TD
+  B["briefs/&lt;slug&gt;.md<br/>your question + budget"] --> N["referee.py new &lt;slug&gt;<br/>creates runs/&lt;slug&gt;/"]
+  N --> R{{"referee.py run &lt;slug&gt;"}}
+  R --> L["Debate round<br/>Claude → Codex → Simplifier"]
+  L --> C{"Both debaters accept<br/>with no blockers?"}
+  C -- no --> K{"Cap hit?<br/>rounds · $ · wall time · STOP"}
+  K -- no --> L
+  K -- yes --> H["awaiting-human-signoff"]
+  C -- yes --> H
+  H --> F{"You review proposal.md"}
+  F -- "more rounds / notes" --> R
+  F -- "touch SIGNOFF" --> W["referee.py write-paper<br/>paper/main.tex + refs.bib"]
+  W --> E["Experiments<br/>run separately, on GPU"]
+  L -. every turn .-> G[("git commit<br/>post-commit hook pushes")]
+  H -. --report .-> P["Reporter → Notion<br/>Agent Brainstorm"]
+  </pre></div>
+  <p class="cap">The experiments are not run by the loop. The loop produces a proposal you can check, and running it is a separate, budgeted step.</p>
+</section>
+
+<section>
+  <h2>One round, turn by turn</h2>
+  <p>Every call is stateless. An agent starts with no memory and reads the run folder: the brief, the current proposal and every earlier turn. Its only channels are the files it writes and the verdict at the end.</p>
+  <div class="diagram"><pre class="mermaid">
+sequenceDiagram
+  participant Ref as Referee
+  participant Cl as Claude debater
+  participant Cx as Codex debater
+  participant S as Simplifier
+  participant Git as git
+  Ref->>Ref: check STOP, rounds, cost, wall time
+  Ref->>Cl: prompt + run folder
+  Cl-->>Ref: debate/NNN-claude-debater.md + {"verdict","blocking"}
+  Ref->>Git: commit turn
+  Ref->>Cx: prompt with run files pasted in
+  Cx-->>Ref: final message (saved as its turn file)
+  Ref->>Git: commit turn
+  Ref->>S: prompt + run folder
+  S-->>Ref: rewritten proposal.md (≤400 words)
+  Ref->>Git: commit turn
+  Ref->>Ref: converged if both verdicts are accept with empty blocking
+  </pre></div>
+  <p class="cap">Codex's sandbox can't run on this machine (an AppArmor setting blocks it), so the referee pastes the files into its prompt and saves its reply as the turn file. The sandbox is never bypassed.</p>
+</section>
+
+<section>
+  <h2>What a debater does each turn</h2>
+  <ul>
+    <li><strong>Track.</strong> List every blocker from the last round as resolved or open, each with a reason.</li>
+    <li><strong>Critique.</strong> Go through a fixed checklist: novelty against prior work, missing baselines, confounds, feasibility on the budget, and whether the idea can actually be falsified.</li>
+    <li><strong>Propose.</strong> Edit <code>proposal.md</code> or argue for an alternative.</li>
+    <li><strong>Verdict.</strong> <code>{"verdict": "accept" | "revise", "blocking": [...], "confidence": 0–1}</code>, with at most three blocking items. Agreeing too early is counted as a failure.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>When a run stops</h2>
+  <div class="diagram"><pre class="mermaid">
+stateDiagram-v2
+  [*] --> running: run
+  running --> running: round ends, no cap
+  running --> signoff: converged
+  running --> signoff: max rounds / cost cap / wall-time cap
+  running --> stopped: STOP file
+  stopped --> running: delete STOP, run again (resumes)
+  signoff --> running: you ask for more rounds
+  signoff --> paper: SIGNOFF file + write-paper
+  paper --> [*]
+  </pre></div>
+  <p class="cap">"signoff" is the <code>awaiting-human-signoff</code> status. A crash, such as a Claude usage-limit error, leaves the state intact; running the same command again resumes from the failed turn.</p>
+</section>
+
+<section>
+  <h2>The run folder</h2>
+  <div class="tw"><table>
+    <thead><tr><th>File</th><th>What it holds</th></tr></thead>
+    <tbody>
+      <tr><td>brief.md</td><td>Your question, constraints and budget. Binding on every agent.</td></tr>
+      <tr><td>proposal.md</td><td>The current consolidated proposal, rewritten by the Simplifier each round.</td></tr>
+      <tr><td>debate/NNN-*.md</td><td>Every turn in order, each ending in a JSON verdict.</td></tr>
+      <tr><td>state.json</td><td>Round, cost, elapsed time, each turn's verdict and blockers, the models used and the Notion page id.</td></tr>
+      <tr><td>logs/</td><td>Raw stdout and stderr from every CLI call.</td></tr>
+      <tr><td>STOP</td><td>Create it to halt before the next call.</td></tr>
+      <tr><td>SIGNOFF</td><td>Created by you only. Unlocks <code>write-paper</code>.</td></tr>
+      <tr><td>paper/</td><td>The writer's <code>main.tex</code> and <code>refs.bib</code>. Experiments are marked [PROPOSED], results [PLACEHOLDER], figures [ILLUSTRATIVE].</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>A real run: prompt-features</h2>
+  <p>Opus 5.5 against gpt-6-astra on your question about prompt optimisation through model internals. It ran 5 rounds in 33 minutes for $3.40 of API spend and stopped at the round cap with the last patch unreviewed.</p>
+  <div class="ledger"><span class="m">seq  role                verdict  blockers  time</span>
+<span class="c">001  claude debater      revise   1         158s</span>
+<span class="x">002  codex debater       revise   3         237s</span>
+<span class="s">003  simplifier          —        —          66s</span>
+<span class="c">004  claude debater      revise   2         120s</span>
+<span class="x">005  codex debater       revise   2         281s</span>
+<span class="s">006  simplifier          —        —          71s</span>
+<span class="m">…    rounds 3–4: blockers fall to 1–2 per debater</span>
+<span class="c">013  claude debater      revise   1          80s</span>
+<span class="x">014  codex debater       revise   2         136s</span>
+<span class="s">015  simplifier          —        —          99s</span>
+<span class="m">stop: max rounds (5) reached → awaiting-human-signoff</span></div>
+  <p class="cap">The result is a 411-word proposal with one hypothesis, one controlled experiment and pre-registered pass and fail rules. <a href="https://github.com/Gan-Labs/autoresearch/blob/main/runs/prompt-features/proposal.md">Read it on GitHub</a>.</p>
+</section>
+
+<section>
+  <h2>Design choices</h2>
+  <ul>
+    <li><strong>A dumb referee.</strong> All judgement stays with the models and with you. The script only counts, caps and records, so its behaviour is easy to check.</li>
+    <li><strong>Files are the only memory.</strong> Stateless calls mean any turn can be rerun or inspected, and a crash loses nothing.</li>
+    <li><strong>Symmetric debaters from different labs.</strong> Both propose and both critique. Agreement counts only when two different model families accept in the same round.</li>
+    <li><strong>A Simplifier to cut bloat.</strong> Debates tend to pile up safeguards, so the Simplifier holds the proposal to one hypothesis and at most two decision rules.</li>
+    <li><strong>A human gate before anything costly.</strong> No paper, and no GPU spend, without your sign-off.</li>
+    <li><strong>Notion is a view, not an input.</strong> Only the reporter writes to it, and nothing the debaters do depends on it.</li>
+  </ul>
+  <p style="margin-top:12px">Code: <a href="https://github.com/Gan-Labs/autoresearch">github.com/Gan-Labs/autoresearch</a> (private, branch <code>main</code>). Commands: <code>new</code>, <code>run</code>, <code>status</code>, <code>report</code>, <code>write-paper</code>.</p>
+</section>
+</main>
+
+<script type="module">
+import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.esm.min.mjs";
+const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+mermaid.initialize({startOnLoad: true, theme: dark ? "dark" : "neutral"});
+</script>
+</body></html>
