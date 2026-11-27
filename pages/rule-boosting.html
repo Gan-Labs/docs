@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rule-following without training</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Fraunces:opsz,wght@9..144,600&display=swap">
+<style>
+/* Layout: single reading column like the other docs; the claim ledger (status chips per claim) is the one distinctive device. */
+:root{
+  --bg:#f6f7f4; --surface:#ffffff; --fg:#1d2420; --muted:#5b665f; --line:#d8ddd6;
+  --accent:#2f6f5e; --hold:#2f7a3a; --part:#a8730a; --fail:#b0413a;
+  --display:"Fraunces", Georgia, serif; --body:"IBM Plex Sans", system-ui, sans-serif; --mono:"IBM Plex Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#131815; --surface:#1b211d; --fg:#e4e9e4; --muted:#9aa69e; --line:#2d3530;
+  --accent:#6fbfa6; --hold:#74c47f; --part:#e0b04f; --fail:#e5776f; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#131815; --surface:#1b211d; --fg:#e4e9e4; --muted:#9aa69e; --line:#2d3530;
+  --accent:#6fbfa6; --hold:#74c47f; --part:#e0b04f; --fail:#e5776f; color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:16px/1.6 var(--body);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:40px 64px}
+main{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:40px}
+h1,h2{font-family:var(--display);font-weight:600;text-wrap:balance;line-height:1.2;margin:0}
+h1{font-size:2.2rem} h2{font-size:1.45rem;margin-bottom:12px}
+h3{font:600 1rem var(--body);margin:0 0 4px}
+p{margin:0 0 12px} p:last-child{margin-bottom:0}
+.lede{font-size:1.1rem;color:var(--muted);max-width:62ch}
+.eyebrow{font:500 .75rem/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-bottom:10px}
+code{font:.9em var(--mono);background:color-mix(in srgb,var(--accent) 10%,transparent);padding:1px 5px;border-radius:4px}
+.diagram{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:20px;overflow-x:auto}
+.diagram pre.mermaid{margin:0;background:transparent;text-align:center}
+.cap{font-size:.85rem;color:var(--muted);margin-top:10px}
+.roles{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.role{border-top:3px solid var(--c);padding:12px 0 0}
+.role p{font-size:.93rem;color:var(--muted)}
+table{border-collapse:collapse;width:100%;font-size:.9rem}
+.tw{overflow-x:auto}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:500 .75rem var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+td:first-child{font-family:var(--mono);font-size:.85rem;white-space:nowrap}
+.chip{display:inline-block;font:500 .72rem/1.6 var(--mono);padding:0 7px;border-radius:999px;border:1px solid currentColor;margin:0 4px 4px 0;white-space:nowrap}
+.hold{color:var(--hold)} .part{color:var(--part)} .fail{color:var(--fail)}
+.num{font-variant-numeric:tabular-nums}
+ul{margin:0;padding-left:20px} li{margin-bottom:6px}
+a{color:var(--accent)}
+</style>
+</head><body>
+<nav style="max-width:760px;margin:0 auto 24px"><a href="../index.html">&larr; All docs</a></nav>
+<main>
+<header>
+  <div class="eyebrow">Gan-Labs / rule boosting</div>
+  <h1>Rule-following without training</h1>
+  <p class="lede" style="margin-top:12px">We make a language model follow a rule (be rigorous, don't be sycophantic, be truthful) without any training. The rule is defined only by example pairs. Several approaches then pull on different parts of the model, and all of them are scored on the same held-out test. This page maps each approach onto the model, lists the claims we tested, and says which ones hold.</p>
+</header>
+
+<section>
+  <h2>The paradigm</h2>
+  <p><strong>One objective.</strong> For each prompt we have two answers with the same content: one follows the rule, one breaks it. The <em>rule loss</em> is <code>L = NLL(follows) − NLL(breaks)</code>, averaged per answer token. Lower L means the model prefers the rule-following answer. The model is never trained on L. We only use it to choose an intervention and to score it.</p>
+  <p><strong>Several control surfaces.</strong> A transformer can be steered in a few places: the <em>prompt</em>, the <em>residual stream</em> at one layer, or the <em>weights</em>. In the residual stream we can push along a few <em>sparse</em> directions (features from a sparse autoencoder, an SAE) or along one <em>dense</em> direction.</p>
+  <p><strong>Several selection signals.</strong> What decides <em>which</em> directions to push? We compare the gradient of L (a Fisher score per SAE feature), the model itself reading each feature's text description, a difference of mean activations (CAA, the standard steering baseline), and random features as a control.</p>
+  <p><strong>One scorecard.</strong> Every intervention is scored on held-out prompts the same way: how much L falls, how much fluency suffers (loss on ordinary Wikipedia text, capped at a 5% rise), whether the effect transfers to differently written answers, and whether it moves the same internal features as simply stating the rule.</p>
+</section>
+
+<section>
+  <h2>The approaches</h2>
+  <div class="roles">
+    <div class="role" style="--c:var(--muted)"><h3>Prompt</h3><p>Write the rule into the user message. This is the reference every other approach is measured against.</p></div>
+    <div class="role" style="--c:var(--accent)"><h3>Sparse SAE boost</h3><p>Add <code>β × activation × feature direction</code> for k = 8 or 32 SAE features at one layer, on every token. Features are chosen by the Fisher score, by the model itself, or at random.</p></div>
+    <div class="role" style="--c:var(--part)"><h3>Dense CAA boost</h3><p>One direction: the mean activation on rule-following answers minus the mean on rule-breaking ones (Rimsky et al. 2024). No SAE, no feature choice.</p></div>
+    <div class="role" style="--c:var(--hold)"><h3>Weight edit</h3><p>Fold the boost into a fixed bias in the weights: a one-shot edit with no optimiser and no runtime hook. Gains are Fisher-scaled or flat.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>Where everything sits on the model</h2>
+  <p>Data defines the rule loss. Selection signals turn it into interventions on three control surfaces. Every intervention is read out on the same scorecard. Edge labels name the experiment and claim, and colour shows whether the claim holds (green), partly holds or is exploratory (amber), or fails (red).</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart LR
+  subgraph DATA["Annotated pairs: the rule"]
+    D1["Rigor<br/>100 synthetic Qs"]
+    D2["Sycophancy<br/>CAA A/B set"]
+    D3["TruthfulQA"]
+  end
+  DATA --> L["Rule loss L<br/>NLL(follows) − NLL(breaks)"]
+  subgraph SEL["Selection signals"]
+    S1["Fisher score<br/>gradient of L per feature"]
+    S2["Self-map<br/>model reads descriptions"]
+    S3["CAA<br/>mean difference"]
+    S4["Random<br/>control"]
+  end
+  L --> S1
+  DATA --> S3
+  subgraph MODEL["Control surfaces: Gemma 2 2B · Llama 3.1 8B · GPT-2"]
+    P["Prompt<br/>rule written in"]
+    subgraph RES["Residual stream, one layer"]
+      SAE["SAE dictionary<br/>65k / 131k features"]
+      SP["Sparse boost<br/>k = 8 or 32 features"]
+      DN["Dense boost<br/>one direction"]
+    end
+    W["Weights<br/>one-shot bias edit"]
+    LATER["Later-layer readout"]
+  end
+  S1 --> SP
+  S2 --> SP
+  S4 --> SP
+  S3 --> DN
+  SAE --- SP
+  S1 -->|"gains"| W
+  SP --> LATER
+  P --> LATER
+  subgraph SCORE["Scorecard (held-out)"]
+    M1["Rule loss L"]
+    M2["Fluency ≤ 5%"]
+    M3["Transfer"]
+    M4["Same features<br/>as the prompt?"]
+  end
+  P -->|"Exp 0 · C0"| M1
+  SAE -->|"Exp 0 · C0b fit"| M2
+  SP -->|"Exp 1 · C1 C2 C4"| M1
+  SP -->|"Exp 4 · T1"| M3
+  LATER -->|"Exp 1 · C3"| M4
+  W -->|"Exp 3 · C5"| M1
+  DN -->|"Exp 5 · vs CAA"| M1
+  classDef hold stroke:#2f7a3a,stroke-width:3px;
+  classDef part stroke:#a8730a,stroke-width:3px;
+  classDef fail stroke:#b0413a,stroke-width:3px;
+  class S1,SP,W hold;
+  class SAE,DN,M3 part;
+  class S2,LATER,M4 fail;
+</pre></div>
+  <p class="cap">Gemma: layer 12 of 26, Gemma Scope 65k SAE (the only one that passed the fit check). Llama: layer 15, Llama Scope 131k (exploratory: it failed the fit check). GPT-2: layer 6, 24k.</p>
+</section>
+
+<section>
+  <h2>Claims and whether they hold</h2>
+  <p>Generous thresholds. Δ is the change in held-out rule loss versus the unsteered model (negative is good). Every Δ quoted has a 95% bootstrap interval that excludes zero unless marked n.s.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Claim</th><th>Surface · experiment</th><th>Holds?</th><th>Evidence</th></tr></thead>
+    <tbody>
+    <tr><td>C0</td><td>Prompt · Exp 0<br/>Stating the rule lowers L</td><td><span class="chip hold">rigor, all models</span><span class="chip hold">sycophancy Gemma-IT</span><span class="chip fail">Llama syc / TQA</span><span class="chip fail">Gemma-IT TQA</span></td><td class="num">Rigor −0.02 to −0.08 · sycophancy −0.74 · Gemma-IT TruthfulQA +0.15 (prompting hurts)</td></tr>
+    <tr><td>C0b</td><td>SAE · Exp 0 + width sweep<br/>The SAE captures the layer</td><td><span class="chip part">only Gemma 2 + 65k</span></td><td class="num">Splice cost (limit 0.1 nat): Gemma 2 65k +0.06/+0.07 · Gemma 3 +0.26 · Llama 131k +0.15/+0.18 · GPT-2 +0.35</td></tr>
+    <tr><td>C1</td><td>Sparse boost · Exp 1<br/>Fisher features make the model follow the rule, beyond Base and Random</td><td><span class="chip hold">rigor, 4 models</span><span class="chip part">TQA Gemma-IT (exploratory)</span><span class="chip fail">sycophancy</span></td><td class="num">Rigor −0.11 to −0.18, about 2× the prompt effect, ≤ 5% fluency · TruthfulQA Gemma-IT −0.13 with a looser feature cut · sycophancy: random beats Fisher</td></tr>
+    <tr><td>C2</td><td>Selection · Exp 1<br/>Gradient choice beats the model choosing from descriptions</td><td><span class="chip hold">rigor</span><span class="chip hold">TQA</span><span class="chip fail">sycophancy k=32</span></td><td class="num">Fisher − self-mapped −0.07 to −0.20 · self-chosen "math notation" features do nothing on rigor</td></tr>
+    <tr><td>C3</td><td>Later layer · Exp 1<br/>The boost moves the same features as the instruction</td><td><span class="chip fail">everywhere</span></td><td class="num">Correlation of feature changes, boost vs prompt: r ≈ 0 (criterion ≥ 0.3)</td></tr>
+    <tr><td>C4</td><td>Sparse boost · Exp 1 β sweep<br/>Control is continuous</td><td><span class="chip hold">k = 8</span><span class="chip fail">k = 32</span></td><td class="num">k = 8: L falls over 4–5 β steps before fluency breaks · k = 32 breaks after about 2</td></tr>
+    <tr><td>C5</td><td>Weights · Exp 3<br/>Fisher-scaled edit beats a flat edit</td><td><span class="chip fail">1 of 6 runs</span><span class="chip hold">the edit itself works</span></td><td class="num">Rigor L −0.2 to −0.3 at 2–5% fluency on all 4 models · Fisher scaling ≈ flat except Llama-IT, k = 8</td></tr>
+    <tr><td>T1</td><td>Sparse boost · Exp 4<br/>Transfers to differently written answers</td><td><span class="chip hold">rigor Gemma, Llama base</span><span class="chip part">Llama-IT</span><span class="chip fail">sycophancy swap</span></td><td class="num">On answers written by Qwen2.5-7B: Gemma keeps 64–104% · Llama base 71% · Llama-IT ~30% · sycophancy fails with A/B swapped</td></tr>
+    <tr><td>vs CAA</td><td>Sparse vs dense · Exp 5<br/>SAE boost vs the standard dense baseline</td><td><span class="chip fail">sycophancy</span><span class="chip hold">TQA Gemma-IT</span><span class="chip fail">TQA base</span></td><td class="num">Sycophancy Gemma-IT: CAA −1.54 vs Fisher −0.28 · TruthfulQA Gemma-IT: Fisher −0.13, CAA −0.02 (n.s.)</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>Experiments</h2>
+  <div class="tw"><table>
+    <thead><tr><th>Exp</th><th>What it does</th><th>Claims</th></tr></thead>
+    <tbody>
+    <tr><td>0</td><td>Rule in the prompt vs not; SAE splice cost on ordinary text; SAE width sweep</td><td>C0, C0b</td></tr>
+    <tr><td>1</td><td>Boost Fisher / self-mapped / random features (k = 8, 32) over a β sweep; feature-change readout at a later layer</td><td>C1–C4</td></tr>
+    <tr><td>3</td><td>Permanent one-shot weight edit, Fisher-scaled vs flat gains</td><td>C5</td></tr>
+    <tr><td>4</td><td>Same frozen features, scored on rigorous/plain answers written by a different model</td><td>T1</td></tr>
+    <tr><td>5</td><td>Exps 0–4 on two established datasets (CAA sycophancy, TruthfulQA), plus the CAA dense baseline</td><td>all, vs CAA</td></tr>
+    </tbody>
+  </table></div>
+  <p class="cap">Models: Gemma 2 2B (instruction-tuned and base), Llama 3.1 8B (instruction-tuned and base), GPT-2 small. Total GPU spend ≈ $9, no API calls.</p>
+</section>
+
+<section>
+  <h2>Reading the map</h2>
+  <ul>
+    <li><strong>One path works.</strong> Gradient of the rule loss → a handful of SAE features → boost them, at runtime or as a weight edit. On rigor it lowers held-out L about twice as much as stating the rule, survives a change of author on Gemma, and beats random and self-chosen features.</li>
+    <li><strong>The mechanism is not the instruction's.</strong> The boost does not move the features that stating the rule moves (C3). It is a different route to the same output preference.</li>
+    <li><strong>The best surface depends on the task.</strong> On sycophancy, a strong two-letter preference, the dense CAA direction is the better lever. On TruthfulQA (Gemma-IT, exploratory), the sparse SAE lever helps where both prompting and CAA fail.</li>
+    <li><strong>The SAE is the bottleneck.</strong> Only one of seven model/SAE combinations passed the fit check, and the Llama results are weak partly for that reason.</li>
+    <li><strong>The feature cut didn't scale.</strong> Requiring a feature's effect to have the same sign on ≥ 50% consistency worked for 60 similar rigor questions but rejected every feature on 300 varied TruthfulQA questions.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Next</h2>
+  <ul>
+    <li>Replace the fixed feature cut with a sign-consistency test that scales with dataset size, fixed in advance. Rerun sycophancy and TruthfulQA with CAA at its own scale as the standard baseline (≈ $3).</li>
+    <li>Try a better-fitting SAE: Gemma 2 9B with Gemma Scope, or wider Llama SAEs on an 80 GB GPU (≈ $3–5).</li>
+    <li>A human read of 20 rigor answers, boosted vs prompted, to confirm that L reflects real rigor (~30 minutes).</li>
+  </ul>
+  <p style="margin-top:12px">Code: <code>rule-boosting</code> repo, branch <code>claude/code</code>. Full numbers: the Notion results notebook under the rule-boosting proposal.</p>
+</section>
+</main>
+
+<script type="module">
+import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.esm.min.mjs";
+const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+mermaid.initialize({startOnLoad: true, theme: dark ? "dark" : "neutral"});
+</script>
+</body></html>
