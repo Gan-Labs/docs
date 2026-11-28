@@ -138,13 +138,13 @@ flowchart LR
     <tbody>
     <tr><td>C0</td><td>Prompt · Exp 0<br/>Stating the rule lowers L</td><td><span class="chip hold">rigor, all models</span><span class="chip hold">sycophancy Gemma-IT</span><span class="chip fail">Llama syc / TQA</span><span class="chip fail">Gemma-IT TQA</span></td><td class="num">Rigor −0.02 to −0.08 · sycophancy −0.74 · Gemma-IT TruthfulQA +0.15 (prompting hurts)</td></tr>
     <tr><td>C0b</td><td>SAE · Exp 0 + width sweep<br/>The SAE captures the layer</td><td><span class="chip part">only Gemma 2 + 65k</span></td><td class="num">Splice cost (limit 0.1 nat): Gemma 2 65k +0.06/+0.07 · Gemma 3 +0.26 · Llama 131k +0.15/+0.18 · GPT-2 +0.35</td></tr>
-    <tr><td>C1</td><td>Sparse boost · Exp 1<br/>Fisher features make the model follow the rule, beyond Base and Random</td><td><span class="chip hold">rigor, 4 models</span><span class="chip part">TQA Gemma-IT (exploratory)</span><span class="chip fail">sycophancy</span></td><td class="num">Rigor −0.11 to −0.18, about 2× the prompt effect, ≤ 5% fluency · TruthfulQA Gemma-IT −0.13 with a looser feature cut · sycophancy: random beats Fisher</td></tr>
-    <tr><td>C2</td><td>Selection · Exp 1<br/>Gradient choice beats the model choosing from descriptions</td><td><span class="chip hold">rigor</span><span class="chip hold">TQA</span><span class="chip fail">sycophancy k=32</span></td><td class="num">Fisher − self-mapped −0.07 to −0.20 · self-chosen "math notation" features do nothing on rigor</td></tr>
+    <tr><td>C1</td><td>Sparse boost · Exp 1, 6<br/>Fisher features make the model follow the rule, beyond Base and Random</td><td><span class="chip hold">rigor, 4 models</span><span class="chip hold">sycophancy Gemma base, Gemma-IT</span><span class="chip hold">TQA Llama-IT</span><span class="chip fail">TQA Gemma</span></td><td class="num">Rigor −0.11 to −0.18, about 2× the prompt effect, ≤ 5% fluency · with size-aware selection (Exp 6): sycophancy Gemma base −0.08, Gemma-IT −0.14, TruthfulQA Llama-IT −0.23 · TruthfulQA Gemma null</td></tr>
+    <tr><td>C2</td><td>Selection · Exp 1<br/>Gradient choice beats the model choosing from descriptions</td><td><span class="chip part">Llama only</span><span class="chip fail">Gemma: invalid</span></td><td class="num"><strong>Correction:</strong> the Gemma descriptions came from a different SAE (Neuronpedia's 65k set describes <code>average_l0_72</code>; we steer with <code>average_l0_141</code>), so every Gemma self-mapped arm is invalid. Llama (descriptions match): Fisher beats self-mapped on rigor and TruthfulQA. Being re-tested properly in the SAE vs transcoder 2×2.</td></tr>
     <tr><td>C3</td><td>Later layer · Exp 1<br/>The boost moves the same features as the instruction</td><td><span class="chip fail">everywhere</span></td><td class="num">Correlation of feature changes, boost vs prompt: r ≈ 0 (criterion ≥ 0.3)</td></tr>
     <tr><td>C4</td><td>Sparse boost · Exp 1 β sweep<br/>Control is continuous</td><td><span class="chip hold">k = 8</span><span class="chip fail">k = 32</span></td><td class="num">k = 8: L falls over 4–5 β steps before fluency breaks · k = 32 breaks after about 2</td></tr>
     <tr><td>C5</td><td>Weights · Exp 3<br/>Fisher-scaled edit beats a flat edit</td><td><span class="chip fail">1 of 6 runs</span><span class="chip hold">the edit itself works</span></td><td class="num">Rigor L −0.2 to −0.3 at 2–5% fluency on all 4 models · Fisher scaling ≈ flat except Llama-IT, k = 8</td></tr>
     <tr><td>T1</td><td>Sparse boost · Exp 4<br/>Transfers to differently written answers</td><td><span class="chip hold">rigor Gemma, Llama base</span><span class="chip part">Llama-IT</span><span class="chip fail">sycophancy swap</span></td><td class="num">On answers written by Qwen2.5-7B: Gemma keeps 64–104% · Llama base 71% · Llama-IT ~30% · sycophancy fails with A/B swapped</td></tr>
-    <tr><td>vs CAA</td><td>Sparse vs dense · Exp 5<br/>SAE boost vs the standard dense baseline</td><td><span class="chip fail">sycophancy</span><span class="chip hold">TQA Gemma-IT</span><span class="chip fail">TQA base</span></td><td class="num">Sycophancy Gemma-IT: CAA −1.54 vs Fisher −0.28 · TruthfulQA Gemma-IT: Fisher −0.13, CAA −0.02 (n.s.)</td></tr>
+    <tr><td>vs CAA</td><td>Sparse vs dense · Exp 5, 6<br/>SAE boost vs the standard dense baseline</td><td><span class="chip hold">where prompting fails</span><span class="chip fail">where prompting works</span></td><td class="num">SAE wins: sycophancy Gemma base (−0.08 vs −0.02; prompting hurts), TruthfulQA Llama-IT (−0.23 vs −0.05; prompting n.s.) · CAA wins: sycophancy Gemma-IT (−0.38) and Llama-IT (−0.69), TruthfulQA Gemma base (−0.15)</td></tr>
     </tbody>
   </table></div>
 </section>
@@ -159,26 +159,27 @@ flowchart LR
     <tr><td>3</td><td>Permanent one-shot weight edit, Fisher-scaled vs flat gains</td><td>C5</td></tr>
     <tr><td>4</td><td>Same frozen features, scored on rigorous/plain answers written by a different model</td><td>T1</td></tr>
     <tr><td>5</td><td>Exps 0–4 on two established datasets (CAA sycophancy, TruthfulQA), plus the CAA dense baseline</td><td>all, vs CAA</td></tr>
+    <tr><td>6</td><td>Rerun of Exp 5 with a size-aware feature rule (sign test, α = 0.01, Bonferroni), fixed in advance, and CAA at its own scale</td><td>C1, C2, T1, vs CAA</td></tr>
     </tbody>
   </table></div>
-  <p class="cap">Models: Gemma 2 2B (instruction-tuned and base), Llama 3.1 8B (instruction-tuned and base), GPT-2 small. Total GPU spend ≈ $9, no API calls.</p>
+  <p class="cap">Models: Gemma 2 2B (instruction-tuned and base), Llama 3.1 8B (instruction-tuned and base), GPT-2 small. Total GPU spend ≈ $12, no API calls.</p>
 </section>
 
 <section>
   <h2>Reading the map</h2>
   <ul>
-    <li><strong>One path works.</strong> Gradient of the rule loss → a handful of SAE features → boost them, at runtime or as a weight edit. On rigor it lowers held-out L about twice as much as stating the rule, survives a change of author on Gemma, and beats random and self-chosen features.</li>
+    <li><strong>One path works.</strong> Gradient of the rule loss → a handful of SAE features → boost them, at runtime or as a weight edit. On rigor it lowers held-out L about twice as much as stating the rule, survives a change of author on Gemma, and beats random features. (The comparison with self-chosen features is only valid for Llama; see C2.)</li>
     <li><strong>The mechanism is not the instruction's.</strong> The boost does not move the features that stating the rule moves (C3). It is a different route to the same output preference.</li>
-    <li><strong>The best surface depends on the task.</strong> On sycophancy, a strong two-letter preference, the dense CAA direction is the better lever. On TruthfulQA (Gemma-IT, exploratory), the sparse SAE lever helps where both prompting and CAA fail.</li>
+    <li><strong>Sparse beats dense where prompting fails.</strong> With size-aware selection (Exp 6), the Fisher-selected SAE features beat CAA exactly where stating the rule fails or backfires: sycophancy on Gemma base, TruthfulQA on Llama-IT. Where the instruction already works strongly (sycophancy on instruction-tuned models), CAA is the better lever.</li>
     <li><strong>The SAE is the bottleneck.</strong> Only one of seven model/SAE combinations passed the fit check, and the Llama results are weak partly for that reason.</li>
-    <li><strong>The feature cut didn't scale.</strong> Requiring a feature's effect to have the same sign on ≥ 50% consistency worked for 60 similar rigor questions but rejected every feature on 300 varied TruthfulQA questions.</li>
+    <li><strong>Selection must scale with the data.</strong> A fixed consistency cut worked for 60 similar rigor questions but rejected every feature on 300 varied questions; a sign test with a significance threshold (Exp 6) finds features on every dataset and makes C1 pass in 3 of 6 external cells.</li>
   </ul>
 </section>
 
 <section>
   <h2>Next</h2>
   <ul>
-    <li>Replace the fixed feature cut with a sign-consistency test that scales with dataset size, fixed in advance. Rerun sycophancy and TruthfulQA with CAA at its own scale as the standard baseline (≈ $3).</li>
+    <li>Test the "sparse where prompting fails, dense where it works" pattern directly on more rules and datasets, with the same pre-registered pipeline.</li>
     <li>Try a better-fitting SAE: Gemma 2 9B with Gemma Scope, or wider Llama SAEs on an 80 GB GPU (≈ $3–5).</li>
     <li>A human read of 20 rigor answers, boosted vs prompted, to confirm that L reflects real rigor (~30 minutes).</li>
   </ul>
